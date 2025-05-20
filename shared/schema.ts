@@ -1,18 +1,42 @@
-import { pgTable, text, serial, integer, boolean, date, time, timestamp } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  varchar,
+  serial,
+  integer,
+  boolean,
+  date,
+  time,
+  timestamp,
+  jsonb,
+  index
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Session storage table.
+// (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
+export const sessions = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)],
+);
+
 // Users
 export const users = pgTable("users", {
-  id: serial("id").primaryKey(),
-  email: text("email").notNull().unique(),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-  firstName: text("first_name"),
-  lastName: text("last_name"),
-  profileImage: text("profile_image"),
+  id: varchar("id").primaryKey().notNull(),
+  email: varchar("email").unique(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  profileImageUrl: varchar("profile_image_url"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
   phone: text("phone"),
-  role: text("role").default("user"),
+  birthDate: date("birth_date"),
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({
@@ -24,7 +48,10 @@ export const ministries = pgTable("ministries", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   code: text("code").notNull().unique(),
-  createdBy: integer("created_by").notNull(),
+  createdBy: varchar("created_by").notNull(), // User ID reference
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  logo: text("logo"), // URL ou caminho para o logo
 });
 
 export const insertMinistrySchema = createInsertSchema(ministries).omit({
@@ -35,9 +62,11 @@ export const insertMinistrySchema = createInsertSchema(ministries).omit({
 export const ministryMembers = pgTable("ministry_members", {
   id: serial("id").primaryKey(),
   ministryId: integer("ministry_id").notNull(),
-  userId: integer("user_id").notNull(),
-  role: text("role").notNull(), // Leader, Admin, Member
-  position: text("position"), // Worship Leader, Vocalist, Acoustic Guitar, etc.
+  userId: varchar("user_id").notNull(),
+  role: text("role").notNull(), // Líder, Admin, Membro
+  position: text("position"), // Posições: Ministro, Vocal, Violão, etc.
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const insertMinistryMemberSchema = createInsertSchema(ministryMembers).omit({
@@ -84,8 +113,10 @@ export const insertServiceSchema = createInsertSchema(services).omit({
 export const serviceMembers = pgTable("service_members", {
   id: serial("id").primaryKey(),
   serviceId: integer("service_id").notNull(),
-  userId: integer("user_id").notNull(),
-  position: text("position").notNull(), // Role in this specific service
+  userId: varchar("user_id").notNull(),
+  position: text("position").notNull(), // Função específica neste culto
+  status: text("status").default("confirmado"), // confirmado, pendente, indisponível
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const insertServiceMemberSchema = createInsertSchema(serviceMembers).omit({
