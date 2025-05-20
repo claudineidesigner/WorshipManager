@@ -2,6 +2,7 @@ import {
   users,
   type User,
   type InsertUser,
+  type UpsertUser,
   ministries,
   type Ministry,
   type InsertMinistry,
@@ -31,10 +32,9 @@ import * as bcrypt from "bcrypt";
 
 // Interface for storage operations
 export interface IStorage {
-  // User operations
-  getUser(id: number): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  // User operations (para autenticação com Replit)
+  getUser(id: string): Promise<User | undefined>;
+  upsertUser(user: UpsertUser): Promise<User>;
   
   // Ministry operations
   getMinistry(id: number): Promise<Ministry | undefined>;

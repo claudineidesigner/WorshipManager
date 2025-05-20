@@ -169,6 +169,7 @@ export const insertMessageSchema = createInsertSchema(messages).omit({
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
+export type UpsertUser = typeof users.$inferInsert;
 
 export type Ministry = typeof ministries.$inferSelect;
 export type InsertMinistry = z.infer<typeof insertMinistrySchema>;
