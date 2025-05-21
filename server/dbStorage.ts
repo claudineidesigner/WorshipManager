@@ -331,16 +331,24 @@ export class DatabaseStorage {
   }
 
   async getMessages(ministryId: number, recipientId?: number): Promise<Message[]> {
-    let query = db
-      .select()
-      .from(messages)
-      .where(eq(messages.ministryId, ministryId));
-    
     if (recipientId) {
-      query = query.where(eq(messages.recipientId, recipientId));
+      return await db
+        .select()
+        .from(messages)
+        .where(
+          and(
+            eq(messages.ministryId, ministryId),
+            eq(messages.recipientId, recipientId)
+          )
+        )
+        .orderBy(desc(messages.createdAt));
+    } else {
+      return await db
+        .select()
+        .from(messages)
+        .where(eq(messages.ministryId, ministryId))
+        .orderBy(desc(messages.createdAt));
     }
-    
-    return await query.orderBy(desc(messages.createdAt));
   }
 
   async createMessage(message: InsertMessage): Promise<Message> {

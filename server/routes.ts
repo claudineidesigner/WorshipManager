@@ -1,7 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
-import { isAuthenticated } from "./auth";
-import { setupAuth } from "./replitAuth";
+import { isAuthenticated, setupAuth } from "./replitAuth";
 import * as z from "zod";
 import { 
   insertMinistrySchema,
@@ -53,8 +52,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Não autorizado" });
       }
       
-      // Temporário: apenas retornar um array vazio até implementarmos o banco de dados completo
-      res.json([]);
+      // Buscar os ministérios do usuário
+      const ministries = await storage.getMinistryByUserId(userId);
+      res.json(ministries);
     } catch (error) {
       console.error("Erro ao buscar ministérios:", error);
       res.status(500).json({ message: "Erro no servidor" });
@@ -78,14 +78,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Set the creator
       ministryData.createdBy = userId;
       
-      // Por enquanto, apenas simulamos a criação do ministério
-      // Quando implementarmos o banco de dados completamente, isso será atualizado
-      const ministry = {
-        id: 1,
-        ...ministryData,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
+      // Criar o ministério
+      const ministry = await storage.createMinistry(ministryData);
+      
+      // Adicionar o criador como líder
+      await storage.createMinistryMember({
+        ministryId: ministry.id,
+        userId,
+        role: "Líder" // Em português, conforme solicitado
+      });
       
       res.status(201).json(ministry);
     } catch (error) {
@@ -97,39 +98,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  app.get("/api/ministries/:id", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/ministries/:id", isAuthenticated, async (req: any, res: Response) => {
     try {
       const ministryId = parseInt(req.params.id);
       if (isNaN(ministryId)) {
-        return res.status(400).json({ message: "Invalid ministry ID" });
+        return res.status(400).json({ message: "ID de ministério inválido" });
+      }
+      
+      // Verificar se o usuário pertence a esse ministério
+      const userId = req.user.claims.sub;
+      const userMinistries = await storage.getMinistryByUserId(userId);
+      const hasAccess = userMinistries.some(m => m.id === ministryId);
+      
+      if (!hasAccess) {
+        return res.status(403).json({ message: "Acesso negado a este ministério" });
       }
       
       const ministry = await storage.getMinistry(ministryId);
       if (!ministry) {
-        return res.status(404).json({ message: "Ministry not found" });
+        return res.status(404).json({ message: "Ministério não encontrado" });
       }
       
       res.json(ministry);
     } catch (error) {
-      res.status(500).json({ message: "Server error" });
+      console.error("Erro ao buscar ministério:", error);
+      res.status(500).json({ message: "Erro no servidor" });
     }
   });
   
-  app.post("/api/ministries/join", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/ministries/join", isAuthenticated, async (req: any, res: Response) => {
     try {
-      const userId = req.session.user?.id;
+      const userId = req.user.claims.sub;
       if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.status(401).json({ message: "Não autorizado" });
       }
       
       const { code } = req.body;
       if (!code) {
-        return res.status(400).json({ message: "Ministry code is required" });
+        return res.status(400).json({ message: "Código do ministério é obrigatório" });
       }
       
       const ministry = await storage.getMinistryByCode(code);
       if (!ministry) {
-        return res.status(404).json({ message: "Ministry not found with that code" });
+        return res.status(404).json({ message: "Ministério não encontrado com este código" });
       }
       
       // Check if user is already a member
@@ -137,50 +148,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isMember = members.some(member => member.userId === userId);
       
       if (isMember) {
-        return res.status(400).json({ message: "You are already a member of this ministry" });
+        return res.status(400).json({ message: "Você já é membro deste ministério" });
       }
       
       // Add user as a member
       const memberData = {
         ministryId: ministry.id,
         userId,
-        role: "Member"
+        role: "Membro" // Em português, conforme solicitado
       };
       
       const member = await storage.createMinistryMember(memberData);
       
       res.status(201).json(member);
     } catch (error) {
-      res.status(500).json({ message: "Server error" });
+      console.error("Erro ao entrar em ministério:", error);
+      res.status(500).json({ message: "Erro no servidor" });
     }
   });
   
-  // Team member routes
-  app.get("/api/team/members", isAuthenticated, async (req: Request, res: Response) => {
+  // Rotas de membros da equipe
+  app.get("/api/team/members", isAuthenticated, async (req: any, res: Response) => {
     try {
-      const userId = req.session.user?.id;
+      const userId = req.user.claims.sub;
       if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.status(401).json({ message: "Não autorizado" });
       }
       
-      // Get user's ministries
+      // Buscar ministérios do usuário
       const ministries = await storage.getMinistryByUserId(userId);
       if (ministries.length === 0) {
         return res.json([]);
       }
       
-      // For simplicity, use the first ministry
+      // Por simplicidade, usar o primeiro ministério
       const ministryId = ministries[0].id;
       
-      // Get all members for this ministry
+      // Buscar todos os membros deste ministério
       const ministryMembers = await storage.getMinistryMembers(ministryId);
       
-      // Get full user data for each member
+      // Buscar dados completos de cada membro
       const teamMembers = [];
       for (const member of ministryMembers) {
         const user = await storage.getUser(member.userId);
         if (user) {
-          const { password, ...userWithoutPassword } = user;
           teamMembers.push({
             id: member.id,
             userId: user.id,
@@ -188,7 +199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             lastName: user.lastName,
             email: user.email,
             phone: user.phone,
-            profileImage: user.profileImage,
+            profileImageUrl: user.profileImageUrl,
             role: member.role,
             position: member.position,
           });
@@ -197,7 +208,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(teamMembers);
     } catch (error) {
-      res.status(500).json({ message: "Server error" });
+      console.error("Erro ao buscar membros da equipe:", error);
+      res.status(500).json({ message: "Erro no servidor" });
     }
   });
   
@@ -345,35 +357,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // Song routes
-  app.get("/api/songs", isAuthenticated, async (req: Request, res: Response) => {
+  // Rotas de músicas
+  app.get("/api/songs", isAuthenticated, async (req: any, res: Response) => {
     try {
-      const userId = req.session.user?.id;
+      const userId = req.user.claims.sub;
       if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.status(401).json({ message: "Não autorizado" });
       }
       
-      // Get user's ministries
+      // Buscar ministérios do usuário
       const ministries = await storage.getMinistryByUserId(userId);
       if (ministries.length === 0) {
         return res.json([]);
       }
       
-      // For simplicity, use the first ministry
+      // Por simplicidade, usar o primeiro ministério
       const ministryId = ministries[0].id;
       
       const songs = await storage.getSongs(ministryId);
       res.json(songs);
     } catch (error) {
-      res.status(500).json({ message: "Server error" });
+      console.error("Erro ao buscar músicas:", error);
+      res.status(500).json({ message: "Erro no servidor" });
     }
   });
   
-  app.post("/api/songs", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/songs", isAuthenticated, async (req: any, res: Response) => {
     try {
-      const userId = req.session.user?.id;
+      const userId = req.user.claims.sub;
       if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.status(401).json({ message: "Não autorizado" });
       }
       
       const songData = insertSongSchema.parse(req.body);
@@ -384,7 +397,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: error.errors[0].message });
       }
-      res.status(500).json({ message: "Server error" });
+      console.error("Erro ao criar música:", error);
+      res.status(500).json({ message: "Erro no servidor" });
     }
   });
   
@@ -444,45 +458,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // Service routes
-  app.get("/api/services", isAuthenticated, async (req: Request, res: Response) => {
+  // Rotas de serviços/cultos
+  app.get("/api/services", isAuthenticated, async (req: any, res: Response) => {
     try {
-      const userId = req.session.user?.id;
+      const userId = req.user.claims.sub;
       if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.status(401).json({ message: "Não autorizado" });
       }
       
-      // Get user's ministries
+      // Buscar ministérios do usuário
       const ministries = await storage.getMinistryByUserId(userId);
       if (ministries.length === 0) {
         return res.json([]);
       }
       
-      // For simplicity, use the first ministry
+      // Por simplicidade, usar o primeiro ministério
       const ministryId = ministries[0].id;
       
       const services = await storage.getServices(ministryId);
       
-      // Enhance services with members and songs
+      // Enriquecer serviços com membros e músicas
       const enhancedServices = [];
       for (const service of services) {
         const serviceMembers = await storage.getServiceMembers(service.id);
         const serviceSongs = await storage.getServiceSongs(service.id);
         
-        // Get member details
+        // Buscar detalhes dos membros
         const members = [];
         for (const member of serviceMembers) {
           const user = await storage.getUser(member.userId);
           if (user) {
-            const { password, ...userWithoutPassword } = user;
             members.push({
               ...member,
-              ...userWithoutPassword
+              ...user
             });
           }
         }
         
-        // Get song details
+        // Buscar detalhes das músicas
         const songs = [];
         for (const serviceSong of serviceSongs) {
           const song = await storage.getSong(serviceSong.songId);
@@ -504,48 +517,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(enhancedServices);
     } catch (error) {
-      res.status(500).json({ message: "Server error" });
+      console.error("Erro ao buscar serviços:", error);
+      res.status(500).json({ message: "Erro no servidor" });
     }
   });
   
-  app.get("/api/services/upcoming", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/services/upcoming", isAuthenticated, async (req: any, res: Response) => {
     try {
-      const userId = req.session.user?.id;
+      const userId = req.user.claims.sub;
       if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.status(401).json({ message: "Não autorizado" });
       }
       
-      // Get user's ministries
+      // Buscar ministérios do usuário
       const ministries = await storage.getMinistryByUserId(userId);
       if (ministries.length === 0) {
         return res.json([]);
       }
       
-      // For simplicity, use the first ministry
+      // Por simplicidade, usar o primeiro ministério
       const ministryId = ministries[0].id;
       
       const services = await storage.getUpcomingServices(ministryId);
       
-      // Enhance services with members and songs
+      // Enriquecer serviços com membros e músicas
       const enhancedServices = [];
       for (const service of services) {
         const serviceMembers = await storage.getServiceMembers(service.id);
         const serviceSongs = await storage.getServiceSongs(service.id);
         
-        // Get member details
+        // Buscar detalhes dos membros
         const members = [];
         for (const member of serviceMembers) {
           const user = await storage.getUser(member.userId);
           if (user) {
-            const { password, ...userWithoutPassword } = user;
             members.push({
               ...member,
-              ...userWithoutPassword
+              ...user
             });
           }
         }
         
-        // Get song details
+        // Buscar detalhes das músicas
         const songs = [];
         for (const serviceSong of serviceSongs) {
           const song = await storage.getSong(serviceSong.songId);
@@ -567,21 +580,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(enhancedServices);
     } catch (error) {
-      res.status(500).json({ message: "Server error" });
+      console.error("Erro ao buscar próximos serviços:", error);
+      res.status(500).json({ message: "Erro no servidor" });
     }
   });
   
-  app.post("/api/services", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/services", isAuthenticated, async (req: any, res: Response) => {
     try {
-      const userId = req.session.user?.id;
+      const userId = req.user.claims.sub;
       if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.status(401).json({ message: "Não autorizado" });
       }
       
       const serviceData = insertServiceSchema.parse(req.body);
       const service = await storage.createService(serviceData);
       
-      // Add members if provided
+      // Adicionar membros se fornecidos
       if (req.body.memberIds && Array.isArray(req.body.memberIds)) {
         for (const memberId of req.body.memberIds) {
           const member = await storage.getMinistryMember(memberId);
@@ -720,57 +734,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Activities
-  app.get("/api/activities", isAuthenticated, async (req: Request, res: Response) => {
-    // This is a mock endpoint for activities
-    res.json([
-      {
-        id: 1,
-        description: "Sarah Johnson updated her availability for July",
-        timeAgo: "1 hour ago",
-        user: {
-          id: 2,
-          firstName: "Sarah",
-          lastName: "Johnson",
-          profileImage: "https://images.unsplash.com/photo-1550525811-e5869dd03032?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2.25&w=256&h=256&q=80"
-        }
-      },
-      {
-        id: 2,
-        description: "David Wilson added a new song \"Build My Life\" to the library",
-        timeAgo: "3 hours ago",
-        user: {
-          id: 1,
-          firstName: "David",
-          lastName: "Wilson",
-          profileImage: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-        }
-      },
-      {
-        id: 3,
-        description: "Michael Brown created a schedule for \"Midweek Service\"",
-        timeAgo: "Yesterday at 2:30 PM",
-        user: {
-          id: 3,
-          firstName: "Michael",
-          lastName: "Brown",
-          profileImage: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2.25&w=256&h=256&q=80"
-        }
+  app.get("/api/activities", isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const userId = req.user.claims.sub;
+      if (!userId) {
+        return res.status(401).json({ message: "Não autorizado" });
       }
-    ]);
+      
+      // Buscar ministérios do usuário
+      const ministries = await storage.getMinistryByUserId(userId);
+      if (ministries.length === 0) {
+        return res.json([]);
+      }
+      
+      // Por simplicidade, usar o primeiro ministério
+      const ministryId = ministries[0].id;
+      
+      // Buscar próximos serviços
+      const upcomingServices = await storage.getUpcomingServices(ministryId);
+      
+      // Converter serviços em atividades
+      const activities = upcomingServices.map(service => ({
+        id: service.id,
+        type: "serviço",
+        description: `Próximo serviço: ${service.name}`,
+        timeAgo: service.date,
+        details: service
+      }));
+      
+      // Se não houver atividades reais, ainda podemos fornecer alguns dados de exemplo
+      if (activities.length === 0) {
+        return res.json([
+          {
+            id: 1,
+            type: "disponibilidade",
+            description: "Atualização de disponibilidade para Julho",
+            timeAgo: "1 hora atrás",
+            user: {
+              id: userId,
+              firstName: "Usuário",
+              lastName: "",
+              profileImageUrl: "https://replit.com/public/images/mark.png"
+            }
+          },
+          {
+            id: 2,
+            type: "música",
+            description: "Nova música adicionada ao repertório",
+            timeAgo: "3 horas atrás",
+            user: {
+              id: userId,
+              firstName: "Usuário",
+              lastName: "",
+              profileImageUrl: "https://replit.com/public/images/mark.png"
+            }
+          }
+        ]);
+      }
+      
+      res.json(activities);
+    } catch (error) {
+      console.error("Erro ao buscar atividades:", error);
+      res.status(500).json({ message: "Erro no servidor" });
+    }
   });
   
-  // Messages
-  app.get("/api/messages/conversations", isAuthenticated, async (req: Request, res: Response) => {
-    // Mock conversations data
-    res.json([
-      {
-        id: 1,
-        name: "Sarah Johnson",
-        avatar: "https://images.unsplash.com/photo-1550525811-e5869dd03032?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2.25&w=256&h=256&q=80",
-        lastMessage: "I'll be there for rehearsal tonight at 7PM",
-        timestamp: new Date(Date.now() - 30 * 60000).toISOString(),
-        unreadCount: 2,
-        position: "Vocalist, Piano",
+  // Mensagens
+  app.get("/api/messages/conversations", isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const userId = req.user.claims.sub;
+      if (!userId) {
+        return res.status(401).json({ message: "Não autorizado" });
+      }
+      
+      // Por enquanto, retornamos dados simulados de conversas
+      res.json([
+        {
+          id: 1,
+          name: "Sarah Johnson",
+          avatar: "https://images.unsplash.com/photo-1550525811-e5869dd03032?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2.25&w=256&h=256&q=80",
+          lastMessage: "I'll be there for rehearsal tonight at 7PM",
+          timestamp: new Date(Date.now() - 30 * 60000).toISOString(),
+          unreadCount: 2,
+          position: "Vocalist, Piano",
         messages: [
           {
             id: 1,
@@ -841,6 +887,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         position: "Drums"
       }
     ]);
+    } catch (error) {
+      console.error("Erro ao buscar conversas:", error);
+      res.status(500).json({ message: "Erro no servidor" });
+    }
   });
 
   const httpServer = createServer(app);
