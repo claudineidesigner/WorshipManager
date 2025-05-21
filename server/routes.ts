@@ -1,11 +1,9 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
-import { authenticateUser, isAuthenticated } from "./auth";
-import * as bcrypt from "bcrypt";
+import { isAuthenticated } from "./auth";
+import { setupAuth } from "./replitAuth";
 import * as z from "zod";
 import { 
-  insertUserSchema, 
   insertMinistrySchema,
   insertMinistryMemberSchema,
   insertSongSchema,
@@ -15,86 +13,51 @@ import {
   insertAvailabilitySchema,
   insertMessageSchema
 } from "@shared/schema";
-import { generateMinistryCode } from "@/lib/utils";
+import { DatabaseStorage } from "./dbStorage";
+import { db } from "./db";
+
+// Use a classe DatabaseStorage para operações no banco de dados
+const dbStorage = new DatabaseStorage();
+
+// Função utilitária para gerar código de ministério
+function generateMinistryCode(): string {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let result = '';
+  for (let i = 0; i < 4; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Authentication routes
-  app.post("/api/auth/register", async (req: Request, res: Response) => {
+  // Configurar autenticação OAuth com Replit
+  await setupAuth(app);
+
+  // Rota de usuário autenticado
+  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
-      const userData = insertUserSchema.parse(req.body);
-      
-      // Check if user already exists
-      const existingUser = await storage.getUserByUsername(userData.username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
-      }
-      
-      // Create the user
-      const user = await storage.createUser(userData);
-      
-      // Remove password from response
-      const { password, ...userWithoutPassword } = user;
-      
-      res.status(201).json(userWithoutPassword);
+      const userId = req.user.claims.sub;
+      const user = await dbStorage.getUser(userId);
+      res.json(user);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: error.errors[0].message });
-      }
-      res.status(500).json({ message: "Server error" });
+      console.error("Erro ao buscar usuário:", error);
+      res.status(500).json({ message: "Falha ao buscar informações do usuário" });
     }
   });
   
-  app.post("/api/auth/login", async (req: Request, res: Response) => {
+  // Rotas de ministérios
+  app.get("/api/ministries", isAuthenticated, async (req: any, res: Response) => {
     try {
-      const { username, password } = req.body;
-      
-      if (!username || !password) {
-        return res.status(400).json({ message: "Username and password are required" });
-      }
-      
-      const user = await authenticateUser(username, password);
-      
-      if (!user) {
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-      
-      // Set user in session
-      req.session.user = user;
-      
-      // Remove password from response
-      const { password: _, ...userWithoutPassword } = user;
-      
-      res.json(userWithoutPassword);
-    } catch (error) {
-      res.status(500).json({ message: "Server error" });
-    }
-  });
-  
-  app.post("/api/auth/logout", (req: Request, res: Response) => {
-    req.session.destroy((err) => {
-      if (err) {
-        return res.status(500).json({ message: "Logout failed" });
-      }
-      res.json({ message: "Logged out successfully" });
-    });
-  });
-  
-  app.get("/api/auth/me", isAuthenticated, (req: Request, res: Response) => {
-    res.json(req.session.user);
-  });
-  
-  // Ministry routes
-  app.get("/api/ministries", isAuthenticated, async (req: Request, res: Response) => {
-    try {
-      const userId = req.session.user?.id;
+      const userId = req.user.claims.sub;
       if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.status(401).json({ message: "Não autorizado" });
       }
       
-      const ministries = await storage.getMinistryByUserId(userId);
-      res.json(ministries);
+      // Temporário: apenas retornar um array vazio até implementarmos o banco de dados completo
+      res.json([]);
     } catch (error) {
-      res.status(500).json({ message: "Server error" });
+      console.error("Erro ao buscar ministérios:", error);
+      res.status(500).json({ message: "Erro no servidor" });
     }
   });
   

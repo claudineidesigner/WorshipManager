@@ -1,43 +1,19 @@
 import type { Request, Response, NextFunction } from "express";
-import { storage } from "./storage";
-import bcrypt from "bcrypt";
 
-// Middleware to check if the user is authenticated
+// Redirecionando para o arquivo replitAuth.ts
+// Este arquivo é mantido para compatibilidade com o código existente
+import { isAuthenticated as authMiddleware } from "./replitAuth";
+
+// Middleware para verificar se o usuário está autenticado
 export function isAuthenticated(req: Request, res: Response, next: NextFunction) {
-  if (req.session.user) {
-    return next();
-  }
-  res.status(401).json({ message: "Unauthorized" });
+  return authMiddleware(req, res, next);
 }
 
-// Function to authenticate a user
-export async function authenticateUser(username: string, password: string) {
-  const user = await storage.getUserByUsername(username);
-  
-  if (!user) {
-    return null;
-  }
-  
-  const passwordMatch = await bcrypt.compare(password, user.password);
-  
-  if (!passwordMatch) {
-    return null;
-  }
-  
-  return user;
-}
-
-// Add session type definitions
+// Definindo tipos para sessão
 declare module "express-session" {
   interface SessionData {
-    user: {
-      id: number;
-      username: string;
-      email: string;
-      firstName?: string;
-      lastName?: string;
-      profileImage?: string;
-      role?: string;
+    passport: {
+      user: any;
     };
   }
 }

@@ -6,7 +6,8 @@ import session from "express-session";
 import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
-import { storage } from "./storage";
+import { DatabaseStorage } from "./dbStorage";
+const storage = new DatabaseStorage();
 
 if (!process.env.REPLIT_DOMAINS) {
   throw new Error("Variável de ambiente REPLIT_DOMAINS não fornecida");
