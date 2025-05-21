@@ -14,41 +14,48 @@ import Register from "./pages/register";
 import NotFound from "./pages/not-found";
 import Layout from "./components/ui/layout";
 
+// Wrapper components for routes
+const DashboardRouteComponent = () => (
+  <Layout>
+    <Dashboard />
+  </Layout>
+);
+
+const ScheduleRouteComponent = () => (
+  <Layout>
+    <Schedule />
+  </Layout>
+);
+
+const SongsRouteComponent = () => (
+  <Layout>
+    <Songs />
+  </Layout>
+);
+
+const TeamRouteComponent = () => (
+  <Layout>
+    <Team />
+  </Layout>
+);
+
+const MessagesRouteComponent = () => (
+  <Layout>
+    <Messages />
+  </Layout>
+);
+
 function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       
-      <Route path="/">
-        <Layout>
-          <Dashboard />
-        </Layout>
-      </Route>
-      
-      <Route path="/schedule">
-        <Layout>
-          <Schedule />
-        </Layout>
-      </Route>
-      
-      <Route path="/songs">
-        <Layout>
-          <Songs />
-        </Layout>
-      </Route>
-      
-      <Route path="/team">
-        <Layout>
-          <Team />
-        </Layout>
-      </Route>
-      
-      <Route path="/messages">
-        <Layout>
-          <Messages />
-        </Layout>
-      </Route>
+      <Route path="/" component={DashboardRouteComponent} />
+      <Route path="/schedule" component={ScheduleRouteComponent} />
+      <Route path="/songs" component={SongsRouteComponent} />
+      <Route path="/team" component={TeamRouteComponent} />
+      <Route path="/messages" component={MessagesRouteComponent} />
       
       <Route>
         <NotFound />
